@@ -1,6 +1,0 @@
-{
-  "name": "DemoFlow Engine",
-  "description": "A pixel-perfect, DOM-replay based product demo engine with interactive hotspots and virtual cursor automation.",
-  "requestFramePermissions": [],
-  "majorCapabilities": []
-}

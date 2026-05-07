@@ -15,9 +15,10 @@ import {
 } from 'react';
 import { DemoScript, DemoStep, Hotspot } from '../types';
 import { injectHtmlIntoIframe, injectSnapshotIntoIframe } from '../lib/utils';
+import { useKeyframeAnimation } from '../hooks/useKeyframeAnimation';
 import { VirtualCursor } from './VirtualCursor';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronLeft, ChevronRight, Play, RotateCcw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
 
 interface DemoPlayerProps {
   script: DemoScript;
@@ -62,12 +63,15 @@ function usePrefersReducedMotion(): boolean {
 function resolveStepIndex(script: DemoScript, target: string | number | undefined): number {
   if (target == null) return 0;
   if (typeof target === 'number') {
-    if (Number.isFinite(target) && target >= 0 && target < script.steps.length) return target;
+    // Reject non-integer / out-of-range indices outright. Returning a clamped
+    // or fractional index would leave `currentStep` undefined or pointing at
+    // the wrong step for deep links like `#step=1.5`.
+    if (Number.isInteger(target) && target >= 0 && target < script.steps.length) return target;
     return 0;
   }
   const numeric = Number(target);
   if (!Number.isNaN(numeric) && String(numeric) === target) {
-    if (numeric >= 0 && numeric < script.steps.length) return numeric;
+    if (Number.isInteger(numeric) && numeric >= 0 && numeric < script.steps.length) return numeric;
   }
   const byId = script.steps.findIndex((s) => s.id === target);
   return byId === -1 ? 0 : byId;
@@ -94,8 +98,6 @@ export const DemoPlayer = forwardRef<DemoPlayerHandle, DemoPlayerProps>(function
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const playheadRef = useRef<number>(0);
-  const lastUpdateRef = useRef<number>(0);
   // Per-inject cache of querySelector results to avoid repeat traversal
   // of large DOMs across mutations and hotspot positioning.
   const selectorCacheRef = useRef<Map<string, Element | null>>(new Map());
@@ -105,7 +107,6 @@ export const DemoPlayer = forwardRef<DemoPlayerHandle, DemoPlayerProps>(function
   useEffect(() => {
     setCurrentStepIndex(resolveStepIndex(script, initialStep));
     setIsPlaying(false);
-    playheadRef.current = 0;
     setProgress(0);
     // We intentionally don't depend on `initialStep` here — that would
     // re-jump the player every time the parent prop changed (e.g. as the
@@ -130,9 +131,12 @@ export const DemoPlayer = forwardRef<DemoPlayerHandle, DemoPlayerProps>(function
       doc = iframeRef.current?.contentDocument;
     } catch {
       // Cross-origin iframe — accessing contentDocument throws a
-      // SecurityError. Surface it once and bail out so we don't keep
-      // trying to query a document we can't read.
-      setIframeAccessError(
+      // SecurityError. Surface it once (gating on existing state to avoid
+      // re-render loops when this is hit for every mutation/hotspot in a
+      // step) and bail out so we don't keep trying to query a document we
+      // can't read.
+      setIframeAccessError((prev) =>
+        prev ??
         'Cannot access iframe content because the demo is on a different origin (loaded via ?demo=<url>). Hotspots and mutations are disabled for this demo.',
       );
       return null;
@@ -221,7 +225,6 @@ export const DemoPlayer = forwardRef<DemoPlayerHandle, DemoPlayerProps>(function
       computeHotspotPositions(currentStep);
     });
 
-    playheadRef.current = 0;
     setProgress(0);
 
     return () => {
@@ -240,96 +243,41 @@ export const DemoPlayer = forwardRef<DemoPlayerHandle, DemoPlayerProps>(function
     return () => observer.disconnect();
   }, [currentStep]);
 
-  // The Animation Loop
-  useEffect(() => {
-    if (!isPlaying || !currentStep) return;
-
-    const keyframes = currentStep.keyframes;
-    const totalDuration = keyframes[keyframes.length - 1]?.timestamp || 0;
-    if (!keyframes.length || totalDuration <= 0) {
-      setIsPlaying(false);
-      return;
-    }
-
-    // Reduced-motion: jump straight to the final keyframe instead of
-    // animating between them. We still drive the progress bar so users
-    // can see playback completed.
-    if (reducedMotion) {
-      const last = keyframes[keyframes.length - 1];
-      setCursorPos({ x: last.x, y: last.y });
-      // Keep the time readout consistent with the progress bar — without
-      // this the timecode stays at 00:00 even though we just "completed"
-      // playback. Also clear any in-flight click state.
-      playheadRef.current = totalDuration;
-      setIsClicking(false);
-      setProgress(100);
-      setIsPlaying(false);
-      return;
-    }
-
-    const animate = (time: number) => {
-      if (!lastUpdateRef.current) lastUpdateRef.current = time;
-      // Scale wall-clock delta by `speed` so 2× advances the playhead twice
-      // as fast and 0.5× advances half as fast. Keyframe timestamps stay
-      // unchanged; only the rate at which we walk through them changes.
-      const deltaTime = (time - lastUpdateRef.current) * speed;
-      lastUpdateRef.current = time;
-
-      playheadRef.current += deltaTime;
-
-      if (playheadRef.current >= totalDuration) {
-        setIsPlaying(false);
-        setProgress(100);
-        return;
-      }
-
-      setProgress((playheadRef.current / totalDuration) * 100);
-
-      const nextIdx = keyframes.findIndex((k) => k.timestamp > playheadRef.current);
-      const prevIdx = nextIdx > 0 ? nextIdx - 1 : 0;
-
-      const prev = keyframes[prevIdx];
-      const next = keyframes[nextIdx];
-
-      if (prev && next) {
-        const segmentProgress =
-          (playheadRef.current - prev.timestamp) / (next.timestamp - prev.timestamp);
-        setCursorPos({
-          x: prev.x + (next.x - prev.x) * segmentProgress,
-          y: prev.y + (next.y - prev.y) * segmentProgress,
-        });
-
-        setIsClicking(next.type === 'click' && segmentProgress > 0.9);
-      }
-
-      requestAnimationFrame(animate);
-    };
-
-    const requestId = requestAnimationFrame(animate);
-    return () => {
-      cancelAnimationFrame(requestId);
-      lastUpdateRef.current = 0;
-    };
-  }, [isPlaying, currentStep, speed, reducedMotion]);
+  // Drive the per-step keyframe animation. The hook owns the rAF loop and
+  // playhead; we just supply the inputs and consume the interpolated values
+  // through callbacks so the rest of the player's state stays local.
+  const handleAnimationComplete = useCallback(() => setIsPlaying(false), []);
+  const { playheadRef } = useKeyframeAnimation({
+    step: currentStep,
+    isPlaying,
+    speed,
+    reducedMotion,
+    onCursorChange: setCursorPos,
+    onClickingChange: setIsClicking,
+    onProgressChange: setProgress,
+    onComplete: handleAnimationComplete,
+  });
 
   const goToIndex = useCallback(
     (idx: number, autoplay = false) => {
       const clamped = Math.max(0, Math.min(idx, script.steps.length - 1));
       setCurrentStepIndex(clamped);
       setIsPlaying(autoplay);
-      playheadRef.current = 0;
       setProgress(0);
+      // Reset the playhead explicitly so "restart current step" works even
+      // when the step identity is unchanged (the hook only auto-resets on
+      // step change).
+      playheadRef.current = 0;
       return clamped;
     },
-    [script.steps.length],
+    [script.steps.length, playheadRef],
   );
 
   const goToStepId = useCallback(
     (target: string | number): boolean => {
       // Numeric (or numeric-string) targets: validate the index is a
-      // non-negative integer in range before jumping. Previously, '999' on a
-      // 3-step script would silently clamp to 0 and still report success,
-      // which makes the imperative API hard to use defensively. Floats like
+      // non-negative integer in range before jumping so invalid inputs fail
+      // fast instead of reporting success for a different step. Floats like
       // 1.5 are also rejected here because array access with a fractional
       // index yields undefined and breaks step rendering downstream.
       if (typeof target === 'number') {
@@ -444,7 +392,11 @@ export const DemoPlayer = forwardRef<DemoPlayerHandle, DemoPlayerProps>(function
     );
   }
 
-  const stepCaption = currentStep.description || currentStep.title || currentStep.mutations?.[0]?.value;
+  // Step caption: prefer authored copy. Mutation values are deliberately
+  // *not* used as a fallback — they're page content (e.g. "Welcome to
+  // DemoFlow!") and surfacing them as a step caption is surprising. If a
+  // step has no title or description we render no caption at all.
+  const stepCaption = currentStep.description || currentStep.title;
 
   return (
     <div ref={containerRef} className="flex flex-col h-full bg-slate-950 relative overflow-hidden">
@@ -549,7 +501,20 @@ export const DemoPlayer = forwardRef<DemoPlayerHandle, DemoPlayerProps>(function
               <div className="w-1.5 h-4 bg-black rounded-full" />
             </div>
           ) : (
-            <Play size={24} fill="currentColor" className="ml-1" />
+            // Inline SVG triangle. `lucide-react`'s Play icon doesn't render
+            // a filled triangle reliably across versions (its inner paths
+            // ignore `fill="currentColor"` in some builds), so we draw the
+            // triangle directly to guarantee a solid play glyph.
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+              className="ml-1"
+            >
+              <path d="M8 5v14l11-7z" />
+            </svg>
           )}
         </button>
         <button
@@ -646,7 +611,7 @@ export const DemoPlayer = forwardRef<DemoPlayerHandle, DemoPlayerProps>(function
             initial={reducedMotion ? false : { opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={reducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.95 }}
-            className="absolute bottom-32 left-1/2 -translate-x-1/2 px-6 py-3 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl z-50 flex items-center gap-3 max-w-[80%]"
+            className="absolute bottom-24 left-1/2 -translate-x-1/2 px-6 py-3 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl z-50 flex items-center gap-3 max-w-[80%]"
           >
             <div className="w-2 h-2 rounded-full bg-brand animate-pulse shrink-0" aria-hidden="true" />
             <p className="text-[10px] font-bold text-slate-200 tracking-widest uppercase truncate">
@@ -691,7 +656,7 @@ function HotspotOverlay({
         <div className="w-4 h-4 bg-blue-600 rounded-full shadow-[0_0_10px_rgba(37,99,235,0.8)]" />
       </div>
       <div
-        className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium shadow-xl opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity whitespace-nowrap max-w-xs"
+        className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium shadow-xl opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity whitespace-nowrap max-w-xs"
         role="tooltip"
       >
         {tip}

@@ -326,10 +326,10 @@ export default function App() {
           <div>
             <h3 className="text-[11px] uppercase tracking-widest text-slate-500 mb-3 border-l-2 border-blue-500 pl-2">Project Manifest</h3>
             <ul className="space-y-2 text-[11px] font-mono text-slate-400">
-              <li className="flex items-center gap-2"><span className="text-brand">├─</span> src/engine/core/<b>player.tsx</b></li>
-              <li className="flex items-center gap-2 text-slate-500"><span className="text-brand">├─</span> src/engine/core/<b>snapshot.ts</b></li>
-              <li className="flex items-center gap-2"><span className="text-brand">├─</span> src/hooks/<b>use-virtual-pointer.ts</b></li>
-              <li className="flex items-center gap-2 text-slate-500"><span className="text-brand">└─</span> public/<b>demo-assets/</b></li>
+              <li className="flex items-center gap-2"><span className="text-brand">├─</span> src/components/<b>DemoPlayer.tsx</b></li>
+              <li className="flex items-center gap-2 text-slate-500"><span className="text-brand">├─</span> src/components/<b>VirtualCursor.tsx</b></li>
+              <li className="flex items-center gap-2"><span className="text-brand">├─</span> src/lib/<b>scriptLoader.ts</b></li>
+              <li className="flex items-center gap-2 text-slate-500"><span className="text-brand">└─</span> src/lib/<b>utils.ts</b></li>
             </ul>
           </div>
 

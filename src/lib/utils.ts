@@ -39,7 +39,10 @@ export function injectSnapshotIntoIframe(
       return;
     }
 
-    // Reset any prior srcdoc so doc.write takes over cleanly.
+    // Reset the iframe document before rebuild: any prior srcdoc is cleared,
+    // then `doc.open()`/`doc.write()` replaces the document contents with a
+    // minimal shell so `rrweb-snapshot`'s `rebuild` has a clean tree to attach
+    // to instead of layering nodes on top of the previous step's DOM.
     if (iframe.getAttribute('srcdoc')) {
       iframe.removeAttribute('srcdoc');
     }
@@ -82,7 +85,9 @@ export function sanitizeRawHtml(html: string): string {
   // Strip on* inline handlers and neutralise javascript: URLs.
   const walker = doc.createTreeWalker(doc, NodeFilter.SHOW_ELEMENT);
   let node = walker.nextNode() as Element | null;
+  let elementCount = 0;
   while (node) {
+    elementCount++;
     for (const attr of Array.from(node.attributes)) {
       const name = attr.name.toLowerCase();
       if (name.startsWith('on')) {
@@ -97,6 +102,16 @@ export function sanitizeRawHtml(html: string): string {
       }
     }
     node = walker.nextNode() as Element | null;
+  }
+
+  // Surface very large documents to authors. The two parser passes (DOMParser
+  // + TreeWalker) scale linearly; past ~5000 elements they start to be
+  // perceptible on the main thread, so warn so authors can split / trim.
+  if (elementCount > 5000) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[DemoFlow] sanitizeRawHtml processed ${elementCount} elements; consider trimming the source HTML to keep step transitions snappy.`,
+    );
   }
 
   // For full documents, return the parsed `<html>` tree (with a doctype so

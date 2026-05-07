@@ -48,8 +48,10 @@ src/
   components/
     DemoPlayer.tsx            # Player: iframe, timeline, hotspots, animation loop
     VirtualCursor.tsx         # Animated cursor rendered above the iframe
+  hooks/
+    useKeyframeAnimation.ts   # rAF-driven keyframe interpolation hook
   lib/
-    utils.ts                  # injectSnapshotIntoIframe + cn() helper
+    utils.ts                  # injectSnapshotIntoIframe + sanitizeRawHtml + cn() helper
     scriptLoader.ts           # Load + validate DemoScript / HTML files
 ```
 
@@ -111,6 +113,7 @@ Other scripts:
 | `npm run build`   | Type-check then produce a production build in `dist/`. |
 | `npm run preview` | Preview the production build locally.                  |
 | `npm run lint`    | Run `tsc --noEmit` for type checking.                  |
+| `npm test`        | Run the Vitest suite (`scriptLoader`, `sanitizeRawHtml`).|
 | `npm run clean`   | Remove the `dist/` build output.                       |
 
 No environment variables are required to run the demo player.
@@ -152,7 +155,31 @@ DemoFlow reads a few query/hash parameters on startup:
 ### `postMessage` API
 
 Embedders can drive the player from the parent page via `window.postMessage`.
-All messages must include `source: 'demoflow'`:
+All messages must include `source: 'demoflow'`.
+
+> **Wait for `ready` first.** The player emits
+> `{ source: 'demoflow', type: 'ready' }` once it is mounted and listening for
+> messages. Sending commands before this event arrives is racy: if the iframe's
+> `contentWindow` hasn't finished initialising, the message handler isn't
+> attached yet and the command is silently dropped. Buffer commands until you
+> see `ready`:
+>
+> ```js
+> const iframe = document.querySelector('iframe');
+> let ready = false;
+> const queue = [];
+> window.addEventListener('message', (e) => {
+>   if (e.data?.source !== 'demoflow') return;
+>   if (e.data.type === 'ready') {
+>     ready = true;
+>     queue.splice(0).forEach((m) => iframe.contentWindow.postMessage(m, '*'));
+>   }
+> });
+> function send(msg) {
+>   if (ready) iframe.contentWindow.postMessage(msg, '*');
+>   else queue.push(msg);
+> }
+> ```
 
 ```js
 const player = document.querySelector('iframe').contentWindow;
@@ -173,6 +200,25 @@ player.postMessage({ source: 'demoflow', type: 'getState' }, '*');
 The player emits `{ source: 'demoflow', type: 'ready' }` on mount and
 `{ source: 'demoflow', type: 'stepChanged', stepId, index, total }` whenever
 the step changes.
+
+## Theming
+
+DemoFlow uses Tailwind v4's `@theme` block (`src/index.css`) to expose its
+core colors as CSS custom properties. Embedders that want to white-label the
+player chrome can override these variables from the parent page (or via a
+custom CSS file loaded after the bundle):
+
+```css
+:root {
+  --color-brand: #ff6a00;       /* primary accent (timeline, focus ring, etc.) */
+  --color-slate-950: #ffffff;   /* outer background */
+  --color-slate-900: #f6f6f6;   /* card/panel background */
+}
+```
+
+Because Tailwind v4 emits utility classes that read these variables at
+runtime, overriding them in the cascade restyles the player without a
+rebuild.
 
 ## Accessibility
 
