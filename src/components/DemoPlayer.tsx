@@ -109,7 +109,6 @@ export function DemoPlayer({ script }: DemoPlayerProps) {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [safeStepIndex, currentStep]);
 
   // Recompute hotspot positions when the iframe is resized.
@@ -121,7 +120,6 @@ export function DemoPlayer({ script }: DemoPlayerProps) {
     });
     observer.observe(iframe);
     return () => observer.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStep]);
 
   // The Animation Loop
