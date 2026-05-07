@@ -193,7 +193,7 @@ the step changes.
 
 <p align="center">
   <a href="https://amalgafy.com">
-    <img src="public/amalgafy-icon.svg" alt="Amalgafy" width="48" height="48" />
+    <img src="public/amalgafy-icon.svg" alt="Amalgafy" width="200" />
   </a>
 </p>
 

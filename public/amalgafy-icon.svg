@@ -1,11 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  Placeholder Amalgafy mark. Replace with the official asset
-  (same path/filename) to keep README references intact.
--->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Amalgafy">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 64" width="320" height="64" role="img" aria-label="Amalgafy">
   <title>Amalgafy</title>
-  <rect width="64" height="64" rx="14" fill="#0F1115"/>
-  <path d="M14 48 L32 16 L50 48 H42 L32 30 L22 48 Z" fill="#00FFC2"/>
-  <rect x="26" y="40" width="12" height="4" fill="#0F1115"/>
+  <!-- 2x2 dot mark; top-left dot is the brand accent -->
+  <g>
+    <circle cx="16" cy="24" r="5" fill="#1FB68A"/>
+    <circle cx="34" cy="24" r="5" fill="#0F1115"/>
+    <circle cx="16" cy="42" r="5" fill="#0F1115"/>
+    <circle cx="34" cy="42" r="5" fill="#0F1115"/>
+  </g>
+  <!-- Wordmark -->
+  <text x="58" y="44"
+        font-family="Inter, 'Helvetica Neue', Arial, sans-serif"
+        font-weight="800"
+        font-size="32"
+        letter-spacing="1"
+        fill="#0F1115">AMALGAFY</text>
 </svg>
