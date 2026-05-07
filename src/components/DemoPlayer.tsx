@@ -326,19 +326,21 @@ export const DemoPlayer = forwardRef<DemoPlayerHandle, DemoPlayerProps>(function
 
   const goToStepId = useCallback(
     (target: string | number): boolean => {
-      // Numeric (or numeric-string) targets: validate the index is in range
-      // before jumping. Previously, '999' on a 3-step script would silently
-      // clamp to 0 and still report success, which makes the imperative
-      // API hard to use defensively.
+      // Numeric (or numeric-string) targets: validate the index is a
+      // non-negative integer in range before jumping. Previously, '999' on a
+      // 3-step script would silently clamp to 0 and still report success,
+      // which makes the imperative API hard to use defensively. Floats like
+      // 1.5 are also rejected here because array access with a fractional
+      // index yields undefined and breaks step rendering downstream.
       if (typeof target === 'number') {
-        if (!Number.isFinite(target) || target < 0 || target >= script.steps.length) return false;
+        if (!Number.isInteger(target) || target < 0 || target >= script.steps.length) return false;
         goToIndex(target, false);
         return true;
       }
       const numeric = Number(target);
       const isNumericString = !Number.isNaN(numeric) && String(numeric) === target;
       if (isNumericString) {
-        if (numeric < 0 || numeric >= script.steps.length) return false;
+        if (!Number.isInteger(numeric) || numeric < 0 || numeric >= script.steps.length) return false;
         goToIndex(numeric, false);
         return true;
       }
