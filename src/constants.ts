@@ -1,0 +1,109 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { DemoScript } from './types';
+
+// Mock snapshot representing a simple webpage
+const MOCK_SNAPSHOT = {
+  type: 0,
+  childNodes: [
+    {
+      type: 2,
+      tagName: 'html',
+      attributes: { lang: 'en' },
+      childNodes: [
+        {
+          type: 2,
+          tagName: 'head',
+          childNodes: []
+        },
+        {
+          type: 2,
+          tagName: 'body',
+          attributes: { style: 'background: #f8fafc; font-family: sans-serif;' },
+          childNodes: [
+            {
+              type: 2,
+              tagName: 'div',
+              attributes: { 
+                id: 'app-root',
+                style: 'display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; gap: 20px;' 
+              },
+              childNodes: [
+                {
+                  type: 2,
+                  tagName: 'div',
+                  attributes: {
+                    style: 'padding: 40px; background: white; border-radius: 12px; shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); border: 1px solid #e2e8f0; width: 400px;'
+                  },
+                  childNodes: [
+                    {
+                      type: 2,
+                      tagName: 'h1',
+                      attributes: { id: 'title', style: 'font-size: 24px; font-weight: bold; color: #1e293b; margin-bottom: 8px;' },
+                      childNodes: [{ type: 3, textContent: 'Dashboard Overview' }]
+                    },
+                    {
+                      type: 2,
+                      tagName: 'p',
+                      attributes: { style: 'color: #64748b; margin-bottom: 24px;' },
+                      childNodes: [{ type: 3, textContent: 'Check your latest stats and analytics.' }]
+                    },
+                    {
+                      type: 2,
+                      tagName: 'button',
+                      attributes: { 
+                        id: 'cta-button',
+                        style: 'width: 100%; padding: 12px; background: #2563eb; color: white; border: none; border-radius: 8px; font-weight: 500;' 
+                      },
+                      childNodes: [{ type: 3, textContent: 'Get Started' }]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  id: 1
+} as any;
+
+export const SAMPLE_DEMO: DemoScript = {
+  title: "Platform Intro",
+  description: "A quick tour of the dashboard features.",
+  steps: [
+    {
+      id: "step-1",
+      snapshot: MOCK_SNAPSHOT,
+      keyframes: [
+        { timestamp: 0, x: 10, y: 10, type: 'move' },
+        { timestamp: 1500, x: 50, y: 45, type: 'move' },
+        { timestamp: 2500, x: 50, y: 55, type: 'click' },
+        { timestamp: 3500, x: 50, y: 55, type: 'wait' }
+      ],
+      hotspots: [
+        { id: "h1", selector: "#cta-button", nextStepId: "step-2", label: "Click to see details" }
+      ],
+      mutations: [
+        { selector: "#title", action: "text", value: "Welcome to DemoFlow!" }
+      ]
+    },
+    {
+      id: "step-2",
+      snapshot: MOCK_SNAPSHOT,
+      keyframes: [
+        { timestamp: 0, x: 50, y: 55, type: 'move' },
+        { timestamp: 1000, x: 80, y: 20, type: 'move' },
+        { timestamp: 2000, x: 80, y: 10, type: 'move' }
+      ],
+      hotspots: [],
+      mutations: [
+        { selector: "#title", action: "text", value: "Explore Real-time Stats" }
+      ]
+    }
+  ]
+};
