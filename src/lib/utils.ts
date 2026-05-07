@@ -60,6 +60,26 @@ export function injectSnapshotIntoIframe(
 }
 
 /**
+ * Strip `<script>` blocks, `<noscript>` blocks, `on*` inline event handlers
+ * and `javascript:` URLs from a raw HTML string. The iframe sandbox already
+ * blocks script execution (it does not include `allow-scripts`), but this
+ * is a belt-and-braces measure so that, even if a future change relaxes
+ * the sandbox, attacker-controlled markup still can't run code.
+ */
+export function sanitizeRawHtml(html: string): string {
+  let safe = html.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '');
+  safe = safe.replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript\s*>/gi, '');
+  // Strip on*="..." / on*='...' / on*=value inline handlers.
+  safe = safe.replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '');
+  safe = safe.replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '');
+  safe = safe.replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, '');
+  // Neutralize javascript: URLs in href/src attributes.
+  safe = safe.replace(/(href|src)\s*=\s*"\s*javascript:[^"]*"/gi, '$1="#"');
+  safe = safe.replace(/(href|src)\s*=\s*'\s*javascript:[^']*'/gi, "$1='#'");
+  return safe;
+}
+
+/**
  * Inject a raw HTML string into the iframe via `srcdoc`. This is the
  * recommended path for large local pages: the browser parses the document
  * off the main React render path, and we get clean isolation without
@@ -72,16 +92,17 @@ export function injectHtmlIntoIframe(
   html: string,
 ): Promise<void> {
   return new Promise((resolve) => {
+    const sanitized = sanitizeRawHtml(html);
     const styleTag = `<style data-demoflow-base>${BASE_IFRAME_STYLE}</style>`;
     let doc: string;
 
-    if (/<\/head\s*>/i.test(html)) {
-      doc = html.replace(/<\/head\s*>/i, `${styleTag}</head>`);
-    } else if (/<html[\s>]/i.test(html)) {
-      doc = html.replace(/<html([^>]*)>/i, `<html$1><head>${styleTag}</head>`);
+    if (/<\/head\s*>/i.test(sanitized)) {
+      doc = sanitized.replace(/<\/head\s*>/i, `${styleTag}</head>`);
+    } else if (/<html[\s>]/i.test(sanitized)) {
+      doc = sanitized.replace(/<html([^>]*)>/i, `<html$1><head>${styleTag}</head>`);
     } else {
       // Fragment / partial HTML
-      doc = `<!doctype html><html><head>${styleTag}</head><body>${html}</body></html>`;
+      doc = `<!doctype html><html><head>${styleTag}</head><body>${sanitized}</body></html>`;
     }
 
     const onLoad = () => {

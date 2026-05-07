@@ -108,12 +108,78 @@ Other scripts:
 | Script            | What it does                                           |
 | ----------------- | ------------------------------------------------------ |
 | `npm run dev`     | Start Vite dev server on port 3000.                    |
-| `npm run build`   | Production build into `dist/`.                         |
+| `npm run build`   | Type-check then produce a production build in `dist/`. |
 | `npm run preview` | Preview the production build locally.                  |
 | `npm run lint`    | Run `tsc --noEmit` for type checking.                  |
 | `npm run clean`   | Remove the `dist/` build output.                       |
 
 No environment variables are required to run the demo player.
+
+## Keyboard shortcuts
+
+When the player has focus (default after page load):
+
+| Key                | Action                       |
+| ------------------ | ---------------------------- |
+| `Space`            | Play / pause                 |
+| `←` / `→`          | Previous / next step         |
+| `Home` / `End`     | First / last step            |
+| `R`                | Restart from the first step  |
+
+Hotspots are also fully keyboard-accessible (`Tab` to focus, `Enter` /
+`Space` to activate) and show a focus ring.
+
+## URL parameters and embedding
+
+DemoFlow reads a few query/hash parameters on startup:
+
+| Parameter         | Effect                                                       |
+| ----------------- | ------------------------------------------------------------ |
+| `?demo=<url>`     | Fetch and play a remote `DemoScript` JSON (or HTML) URL.     |
+| `?embed=1`        | Hide the page chrome and render only the player full-bleed.  |
+| `#step=<id\|idx>` | Deep-link to a specific step on load. The hash is kept in sync as the user navigates so links are shareable. |
+
+**Embedding example:**
+
+```html
+<iframe
+  src="https://your-host.example/?embed=1&demo=https://your-host.example/examples/welcome.json#step=step-2"
+  width="800"
+  height="600"
+></iframe>
+```
+
+### `postMessage` API
+
+Embedders can drive the player from the parent page via `window.postMessage`.
+All messages must include `source: 'demoflow'`:
+
+```js
+const player = document.querySelector('iframe').contentWindow;
+player.postMessage({ source: 'demoflow', type: 'play' }, '*');
+player.postMessage({ source: 'demoflow', type: 'goToStep', stepId: 'step-2' }, '*');
+player.postMessage({ source: 'demoflow', type: 'getState' }, '*');
+```
+
+| `type`       | Effect                                                |
+| ------------ | ----------------------------------------------------- |
+| `play`       | Start playback.                                       |
+| `pause`      | Pause playback.                                       |
+| `next`/`prev`| Move to the next / previous step.                     |
+| `restart`    | Jump to the first step and play.                      |
+| `goToStep`   | Jump to step matching `stepId` (id string or index).  |
+| `getState`   | Reply with `{ type: 'state', stepId, index, total, isPlaying }`. |
+
+The player emits `{ source: 'demoflow', type: 'ready' }` on mount and
+`{ source: 'demoflow', type: 'stepChanged', stepId, index, total }` whenever
+the step changes.
+
+## Accessibility
+
+- `prefers-reduced-motion` is respected: the cursor jumps to the final
+  keyframe instead of animating, and timeline tweens are disabled.
+- An `aria-live` region announces step changes for screen readers.
+- Hotspots expose proper `aria-label` text and a visible focus ring.
 
 ## Notes on current state
 

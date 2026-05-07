@@ -1,0 +1,33 @@
+{
+  "title": "Welcome to DemoFlow",
+  "description": "A tiny two-step tour you can use as a starting point.",
+  "steps": [
+    {
+      "id": "step-1",
+      "title": "Welcome",
+      "description": "Click the call-to-action to continue.",
+      "html": "<!doctype html><html><head><style>body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}.card{background:#1e293b;padding:48px;border-radius:16px;border:1px solid #334155;text-align:center;max-width:480px}h1{margin:0 0 12px;font-size:32px}p{color:#94a3b8;margin:0 0 24px}#cta{background:#22d3ee;color:#0f172a;border:none;padding:12px 24px;border-radius:8px;font-weight:700;font-size:14px}</style></head><body><div class='card'><h1>Welcome 👋</h1><p>This is a minimal DemoFlow tour. Click below to advance.</p><button id='cta'>Get started</button></div></body></html>",
+      "keyframes": [
+        { "timestamp": 0, "x": 50, "y": 90, "type": "move" },
+        { "timestamp": 1500, "x": 50, "y": 50, "type": "click" }
+      ],
+      "hotspots": [
+        {
+          "id": "cta",
+          "selector": "#cta",
+          "label": "Get started",
+          "description": "Advance to the next step",
+          "nextStepId": "step-2"
+        }
+      ]
+    },
+    {
+      "id": "step-2",
+      "title": "All done",
+      "description": "Edit this JSON to build your own tour.",
+      "html": "<!doctype html><html><head><style>body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}.card{background:#1e293b;padding:48px;border-radius:16px;border:1px solid #334155;text-align:center;max-width:480px}h1{margin:0 0 12px;font-size:32px}p{color:#94a3b8;margin:0}</style></head><body><div class='card'><h1>You made it 🎉</h1><p>Edit <code>public/examples/welcome.json</code> to keep building.</p></div></body></html>",
+      "keyframes": [],
+      "hotspots": []
+    }
+  ]
+}

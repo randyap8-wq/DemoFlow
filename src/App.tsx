@@ -3,36 +3,84 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
-import { DemoPlayer } from './components/DemoPlayer';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+} from 'react';
+import { DemoPlayer, type DemoPlayerHandle } from './components/DemoPlayer';
 import { SAMPLE_DEMO } from './constants';
 import { DemoScript } from './types';
-import { loadScriptFromPublic, parseDemoFile } from './lib/scriptLoader';
+import {
+  exportScriptAsJson,
+  loadScriptFromPublic,
+  loadScriptFromUrl,
+  parseDemoFile,
+} from './lib/scriptLoader';
+
+/** Read a URL/hash flag for the embed mode and any deep-link state. */
+function readUrlState(): {
+  embed: boolean;
+  demoUrl: string | null;
+  initialStep: string | null;
+} {
+  if (typeof window === 'undefined') return { embed: false, demoUrl: null, initialStep: null };
+  const params = new URLSearchParams(window.location.search);
+  const hash = window.location.hash.startsWith('#')
+    ? new URLSearchParams(window.location.hash.slice(1))
+    : new URLSearchParams();
+  return {
+    embed: params.get('embed') === '1' || params.get('embed') === 'true',
+    demoUrl: params.get('demo'),
+    initialStep: hash.get('step') || params.get('step'),
+  };
+}
 
 export default function App() {
+  const urlState = useMemo(() => readUrlState(), []);
+
   const [script, setScript] = useState<DemoScript>(SAMPLE_DEMO);
   const [scriptSource, setScriptSource] = useState<string>('Bundled sample');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const playerRef = useRef<DemoPlayerHandle>(null);
 
-  // Recommendation #1: try to load the demo from /public at runtime so the
-  // script does not have to be bundled into the JS payload.
+  // Resolve startup script: ?demo=<url> takes precedence over public/demo.json,
+  // which takes precedence over the bundled SAMPLE_DEMO.
   useEffect(() => {
     let cancelled = false;
-    loadScriptFromPublic()
-      .then((loaded) => {
+    const run = async () => {
+      if (urlState.demoUrl) {
+        try {
+          const loaded = await loadScriptFromUrl(urlState.demoUrl);
+          if (cancelled) return;
+          setScript(loaded);
+          setScriptSource(`url: ${urlState.demoUrl}`);
+          return;
+        } catch (err) {
+          if (!cancelled) setLoadError((err as Error).message);
+          // fall through to public/ load
+        }
+      }
+      try {
+        const loaded = await loadScriptFromPublic();
         if (cancelled || !loaded) return;
         setScript(loaded);
         setScriptSource('public/ (runtime fetch)');
-      })
-      .catch(() => {
+      } catch {
         // Silently fall back to SAMPLE_DEMO.
-      });
+      }
+    };
+    run();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [urlState.demoUrl]);
 
   const loadFile = useCallback(async (file: File) => {
     setLoadError(null);
@@ -72,6 +120,108 @@ export default function App() {
     setScriptSource('Bundled sample');
     setLoadError(null);
   };
+
+  // Download the currently loaded script as JSON.
+  const handleExport = useCallback(() => {
+    const json = exportScriptAsJson(script);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safeTitle = (script.title || 'demo').replace(/[^a-z0-9-_]+/gi, '_').toLowerCase();
+    a.href = url;
+    a.download = `${safeTitle || 'demo'}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [script]);
+
+  // Sync the current step into the URL hash so links are deep-linkable, and
+  // notify embedders via postMessage.
+  const handleStepChange = useCallback(
+    (info: { stepId: string; index: number; total: number }) => {
+      try {
+        const next = `#step=${encodeURIComponent(info.stepId)}`;
+        if (typeof window !== 'undefined' && window.location.hash !== next) {
+          // Use replaceState to avoid spamming history on autoplay.
+          window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${next}`);
+        }
+      } catch {
+        // ignore — non-browser environments
+      }
+      try {
+        window.parent?.postMessage({ source: 'demoflow', type: 'stepChanged', ...info }, '*');
+      } catch {
+        // ignore — sandboxed parents may reject
+      }
+    },
+    [],
+  );
+
+  // postMessage API: parents can drive the player via window.postMessage.
+  // Accepted message shape: { source: 'demoflow', type: 'play' | 'pause' |
+  // 'next' | 'prev' | 'restart' | 'goToStep' | 'getState', stepId? }.
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      const data = e.data;
+      if (!data || typeof data !== 'object' || data.source !== 'demoflow') return;
+      const player = playerRef.current;
+      if (!player) return;
+      switch (data.type) {
+        case 'play':
+          player.play();
+          break;
+        case 'pause':
+          player.pause();
+          break;
+        case 'next':
+          player.next();
+          break;
+        case 'prev':
+          player.prev();
+          break;
+        case 'restart':
+          player.restart();
+          break;
+        case 'goToStep':
+          if (data.stepId != null) player.goToStep(data.stepId);
+          break;
+        case 'getState':
+          try {
+            window.parent?.postMessage(
+              { source: 'demoflow', type: 'state', ...player.getState() },
+              '*',
+            );
+          } catch {
+            // ignore
+          }
+          break;
+      }
+    };
+    window.addEventListener('message', onMessage);
+    // Announce readiness.
+    try {
+      window.parent?.postMessage({ source: 'demoflow', type: 'ready' }, '*');
+    } catch {
+      // ignore
+    }
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+
+  // ----- Embed mode renders just the player, full bleed -----
+  if (urlState.embed) {
+    return (
+      <div className="h-screen w-screen bg-slate-950 text-slate-300 font-sans p-2 overflow-hidden">
+        <DemoPlayer
+          ref={playerRef}
+          script={script}
+          embed
+          initialStep={urlState.initialStep ?? undefined}
+          onStepChange={handleStepChange}
+        />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -118,6 +268,13 @@ export default function App() {
                 >
                   Use Sample
                 </button>
+                <button
+                  onClick={handleExport}
+                  className="px-3 py-1.5 rounded-md border border-slate-700 text-slate-300 text-[10px] font-bold tracking-widest uppercase hover:bg-slate-800 transition-colors"
+                  title="Download the current demo as JSON"
+                >
+                  Export JSON
+                </button>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -154,6 +311,16 @@ export default function App() {
           </div>
 
           <div>
+            <h3 className="text-[11px] uppercase tracking-widest text-slate-500 mb-3 border-l-2 border-blue-500 pl-2">Keyboard Shortcuts</h3>
+            <ul className="space-y-1.5 text-[11px] font-mono text-slate-400">
+              <li><kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-200">Space</kbd> play / pause</li>
+              <li><kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-200">←</kbd> / <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-200">→</kbd> previous / next step</li>
+              <li><kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-200">Home</kbd> / <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-200">End</kbd> first / last step</li>
+              <li><kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-200">R</kbd> restart from first step</li>
+            </ul>
+          </div>
+
+          <div>
             <h3 className="text-[11px] uppercase tracking-widest text-slate-500 mb-3 border-l-2 border-blue-500 pl-2">Project Manifest</h3>
             <ul className="space-y-2 text-[11px] font-mono text-slate-400">
               <li className="flex items-center gap-2"><span className="text-brand">├─</span> src/engine/core/<b>player.tsx</b></li>
@@ -175,7 +342,12 @@ export default function App() {
 
         {/* Center Col: The Player Layer */}
         <section className="col-span-8 flex flex-col p-8 bg-slate-950 relative overflow-hidden">
-          <DemoPlayer script={script} />
+          <DemoPlayer
+            ref={playerRef}
+            script={script}
+            initialStep={urlState.initialStep ?? undefined}
+            onStepChange={handleStepChange}
+          />
         </section>
       </main>
 

@@ -17,6 +17,11 @@ export interface Hotspot {
   id: string;
   selector: string; // CSS selector to match inside the snapshot
   label?: string;
+  /**
+   * Optional longer-form copy shown in the hotspot tooltip / read by screen
+   * readers. Use this to explain *why* a viewer should click the hotspot.
+   */
+  description?: string;
   nextStepId: string;
 }
 
@@ -28,6 +33,10 @@ export interface Mutation {
 
 export interface DemoStep {
   id: string;
+  /** Optional short human-readable title for the step (used in navigator). */
+  title?: string;
+  /** Optional caption shown beneath the player when the step is paused. */
+  description?: string;
   /**
    * Either an rrweb-snapshot serialized DOM tree (rebuilt into the iframe)
    * or a raw HTML string (injected via iframe `srcdoc`). At least one must
