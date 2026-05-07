@@ -28,7 +28,13 @@ export interface Mutation {
 
 export interface DemoStep {
   id: string;
-  snapshot: serializedNodeWithId;
+  /**
+   * Either an rrweb-snapshot serialized DOM tree (rebuilt into the iframe)
+   * or a raw HTML string (injected via iframe `srcdoc`). At least one must
+   * be provided.
+   */
+  snapshot?: serializedNodeWithId;
+  html?: string;
   keyframes: Keyframe[];
   hotspots: Hotspot[];
   mutations?: Mutation[];

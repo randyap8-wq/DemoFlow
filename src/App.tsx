@@ -3,17 +3,83 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import { DemoPlayer } from './components/DemoPlayer';
 import { SAMPLE_DEMO } from './constants';
+import { DemoScript } from './types';
+import { loadScriptFromPublic, parseDemoFile } from './lib/scriptLoader';
 
 export default function App() {
+  const [script, setScript] = useState<DemoScript>(SAMPLE_DEMO);
+  const [scriptSource, setScriptSource] = useState<string>('Bundled sample');
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Recommendation #1: try to load the demo from /public at runtime so the
+  // script does not have to be bundled into the JS payload.
+  useEffect(() => {
+    let cancelled = false;
+    loadScriptFromPublic()
+      .then((loaded) => {
+        if (cancelled || !loaded) return;
+        setScript(loaded);
+        setScriptSource('public/ (runtime fetch)');
+      })
+      .catch(() => {
+        // Silently fall back to SAMPLE_DEMO.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const loadFile = useCallback(async (file: File) => {
+    setLoadError(null);
+    try {
+      const parsed = await parseDemoFile(file);
+      setScript(parsed);
+      setScriptSource(file.name);
+    } catch (err) {
+      setLoadError((err as Error).message);
+    }
+  }, []);
+
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) loadFile(file);
+    // Reset so the same file can be re-selected.
+    e.target.value = '';
+  };
+
+  const handleDragOver = (e: DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+  const handleDragLeave = (e: DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+  const handleDrop = (e: DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) loadFile(file);
+  };
+
+  const resetToSample = () => {
+    setScript(SAMPLE_DEMO);
+    setScriptSource('Bundled sample');
+    setLoadError(null);
+  };
+
   return (
-    <div className="h-screen bg-slate-950 text-slate-300 font-sans flex flex-col overflow-hidden select-none">
+    <div
+      className="h-screen bg-slate-950 text-slate-300 font-sans flex flex-col overflow-hidden select-none relative"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       {/* Header Section */}
       <header className="flex justify-between items-end p-8 border-b border-slate-700 shrink-0">
         <div className="space-y-1">
@@ -28,9 +94,48 @@ export default function App() {
 
       {/* Main Content Grid */}
       <main className="flex-1 grid grid-cols-12 gap-0 overflow-hidden">
-        
-        {/* Left Col: JSON Schema & File Structure */}
+
+        {/* Left Col: Loader + JSON Schema & File Structure */}
         <section className="col-span-4 border-r border-slate-700 flex flex-col p-6 space-y-6 bg-slate-900 overflow-y-auto">
+          {/* Local file loader */}
+          <div>
+            <h3 className="text-[11px] uppercase tracking-widest text-slate-500 mb-3 border-l-2 border-brand pl-2">Local Demo Source</h3>
+            <div className="rounded-lg border border-dashed border-slate-700 bg-black/40 p-4 text-[11px] font-mono space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-slate-500">source:</span>
+                <span className="text-brand truncate" title={scriptSource}>{scriptSource}</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3 py-1.5 rounded-md bg-brand text-black text-[10px] font-bold tracking-widest uppercase hover:opacity-90 transition-opacity"
+                >
+                  Load File
+                </button>
+                <button
+                  onClick={resetToSample}
+                  className="px-3 py-1.5 rounded-md border border-slate-700 text-slate-300 text-[10px] font-bold tracking-widest uppercase hover:bg-slate-800 transition-colors"
+                >
+                  Use Sample
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json,.html,.htm,application/json,text/html"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+              </div>
+              <p className="text-[10px] text-slate-500 leading-relaxed">
+                Pick a <span className="text-slate-300">.json</span> DemoScript or a raw <span className="text-slate-300">.html</span> file.
+                You can also drag &amp; drop a file anywhere on this page. Files stay on your machine.
+              </p>
+              {loadError && (
+                <p className="text-[10px] text-red-400 leading-relaxed">{loadError}</p>
+              )}
+            </div>
+          </div>
+
           <div>
             <h3 className="text-[11px] uppercase tracking-widest text-slate-500 mb-3 border-l-2 border-brand pl-2">Demo Script Schema</h3>
             <div className="bg-black rounded-lg p-4 font-mono text-[10px] leading-relaxed border border-slate-800 shadow-2xl overflow-x-auto whitespace-pre">
@@ -70,7 +175,7 @@ export default function App() {
 
         {/* Center Col: The Player Layer */}
         <section className="col-span-8 flex flex-col p-8 bg-slate-950 relative overflow-hidden">
-          <DemoPlayer script={SAMPLE_DEMO} />
+          <DemoPlayer script={script} />
         </section>
       </main>
 
@@ -89,7 +194,15 @@ export default function App() {
           constructed for enterprise-grade replay scaling
         </div>
       </footer>
+
+      {/* Drag & drop overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-[100] pointer-events-none flex items-center justify-center bg-slate-950/80 backdrop-blur-sm border-4 border-dashed border-brand">
+          <p className="text-brand font-mono text-sm uppercase tracking-[0.3em]">
+            Drop .json or .html to load
+          </p>
+        </div>
+      )}
     </div>
   );
 }
-

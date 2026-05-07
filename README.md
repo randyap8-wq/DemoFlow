@@ -52,6 +52,44 @@ src/
     utils.ts                  # injectSnapshotIntoIframe + cn() helper
 ```
 
+## Loading your own demo (local-only)
+
+DemoFlow runs entirely in the browser — files you load never leave your machine.
+There are three ways to point the player at a custom demo:
+
+1. **Drop a file in `public/`.** On startup the app fetches `public/demo.json`
+   (a `DemoScript`) or, if missing, `public/demo.html` (a raw HTML page) and
+   uses it instead of the bundled `SAMPLE_DEMO`. This keeps large demos out
+   of the JS bundle.
+2. **Click "Load File"** in the left panel and pick a `.json` DemoScript or
+   a `.html` file from disk.
+3. **Drag & drop** a `.json` or `.html` file anywhere on the page.
+
+A starter `public/demo.json` is included that mirrors `SAMPLE_DEMO`.
+
+### Raw HTML demos
+
+When you load an `.html` file, DemoFlow wraps it in a single-step script and
+injects it into the player iframe via `srcdoc`. Hotspots, mutations and
+keyframes are empty by default — the page just renders. To add a guided
+tour over a raw HTML page, author a `DemoScript` JSON whose step uses the
+`html` field instead of `snapshot`:
+
+```json
+{
+  "title": "My Tour",
+  "steps": [
+    {
+      "id": "step-1",
+      "html": "<!doctype html><html>…</html>",
+      "keyframes": [],
+      "hotspots": [{ "id": "h1", "selector": "#cta", "nextStepId": "step-2" }],
+      "mutations": [{ "selector": "#title", "action": "text", "value": "Hello" }]
+    }
+  ]
+}
+```
+
 ## Run locally
 
 **Prerequisites:** Node.js 18+ and npm.

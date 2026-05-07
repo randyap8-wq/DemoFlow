@@ -3,16 +3,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useEffect, useRef, useState } from 'react';
-import { DemoScript, DemoStep, Keyframe } from '../types';
-import { injectSnapshotIntoIframe } from '../lib/utils';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { DemoScript, DemoStep, Hotspot } from '../types';
+import { injectHtmlIntoIframe, injectSnapshotIntoIframe } from '../lib/utils';
 import { VirtualCursor } from './VirtualCursor';
 import { motion, AnimatePresence } from 'motion/react';
-import { Play, RotateCcw, ChevronRight } from 'lucide-react';
+import { Play } from 'lucide-react';
 
 interface DemoPlayerProps {
   script: DemoScript;
 }
+
+type HotspotPosition = { top: string; left: string };
 
 export function DemoPlayer({ script }: DemoPlayerProps) {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -20,42 +22,118 @@ export function DemoPlayer({ script }: DemoPlayerProps) {
   const [cursorPos, setCursorPos] = useState({ x: 50, y: 50 });
   const [isClicking, setIsClicking] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [hotspotPositions, setHotspotPositions] = useState<Record<string, HotspotPosition>>({});
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const playheadRef = useRef<number>(0);
   const lastUpdateRef = useRef<number>(0);
+  // Per-inject cache of querySelector results to avoid repeat traversal
+  // of large DOMs across mutations and hotspot positioning.
+  const selectorCacheRef = useRef<Map<string, Element | null>>(new Map());
 
-  const currentStep = script.steps[currentStepIndex];
-
-  // Initialize Iframe with snapshot when step changes
+  // Reset to first step whenever the script identity changes (e.g. after a
+  // file load) so we never index past the end of `script.steps`.
   useEffect(() => {
-    if (iframeRef.current && currentStep.snapshot) {
-      injectSnapshotIntoIframe(iframeRef.current, currentStep.snapshot);
-      applyMutations(currentStep);
-    }
-    // Reset playhead on step change
+    setCurrentStepIndex(0);
+    setIsPlaying(false);
     playheadRef.current = 0;
     setProgress(0);
-  }, [currentStepIndex, currentStep]);
+  }, [script]);
+
+  const safeStepIndex = Math.min(currentStepIndex, Math.max(script.steps.length - 1, 0));
+  const currentStep = script.steps[safeStepIndex];
+
+  const queryCached = (selector: string): Element | null => {
+    const cache = selectorCacheRef.current;
+    if (cache.has(selector)) return cache.get(selector) ?? null;
+    const doc = iframeRef.current?.contentDocument;
+    const el = doc ? doc.querySelector(selector) : null;
+    cache.set(selector, el);
+    return el;
+  };
 
   const applyMutations = (step: DemoStep) => {
-    if (!step.mutations || !iframeRef.current) return;
-    const doc = iframeRef.current.contentDocument;
-    if (!doc) return;
-
-    step.mutations.forEach(mutation => {
-      const el = doc.querySelector(mutation.selector);
-      if (el) {
-        if (mutation.action === 'text') el.textContent = mutation.value;
-        if (mutation.action === 'style') (el as HTMLElement).style.cssText += mutation.value;
-        if (mutation.action === 'hide') (el as HTMLElement).style.display = 'none';
-      }
+    if (!step.mutations) return;
+    step.mutations.forEach((mutation) => {
+      const el = queryCached(mutation.selector);
+      if (!el) return;
+      if (mutation.action === 'text') el.textContent = mutation.value;
+      if (mutation.action === 'style') (el as HTMLElement).style.cssText += mutation.value;
+      if (mutation.action === 'hide') (el as HTMLElement).style.display = 'none';
     });
   };
 
+  const computeHotspotPositions = (step: DemoStep) => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    const iframeRect = iframe.getBoundingClientRect();
+    if (!iframeRect.width || !iframeRect.height) return;
+
+    const next: Record<string, HotspotPosition> = {};
+    for (const hotspot of step.hotspots) {
+      const el = queryCached(hotspot.selector);
+      if (!el) continue;
+      const rect = (el as HTMLElement).getBoundingClientRect();
+      next[hotspot.id] = {
+        top: `${((rect.top + rect.height / 2) / iframeRect.height) * 100}%`,
+        left: `${((rect.left + rect.width / 2) / iframeRect.width) * 100}%`,
+      };
+    }
+    setHotspotPositions(next);
+  };
+
+  // Inject the current step's content into the iframe and prepare overlays.
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe || !currentStep) return;
+    let cancelled = false;
+
+    selectorCacheRef.current.clear();
+    setHotspotPositions({});
+
+    const inject = currentStep.html
+      ? injectHtmlIntoIframe(iframe, currentStep.html)
+      : currentStep.snapshot
+        ? injectSnapshotIntoIframe(iframe, currentStep.snapshot)
+        : Promise.resolve();
+
+    inject.then(() => {
+      if (cancelled) return;
+      applyMutations(currentStep);
+      computeHotspotPositions(currentStep);
+    });
+
+    playheadRef.current = 0;
+    setProgress(0);
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [safeStepIndex, currentStep]);
+
+  // Recompute hotspot positions when the iframe is resized.
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      if (currentStep) computeHotspotPositions(currentStep);
+    });
+    observer.observe(iframe);
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStep]);
+
   // The Animation Loop
   useEffect(() => {
-    if (!isPlaying) return;
+    if (!isPlaying || !currentStep) return;
+
+    const keyframes = currentStep.keyframes;
+    const totalDuration = keyframes[keyframes.length - 1]?.timestamp || 0;
+    if (!keyframes.length || totalDuration <= 0) {
+      setIsPlaying(false);
+      return;
+    }
 
     const animate = (time: number) => {
       if (!lastUpdateRef.current) lastUpdateRef.current = time;
@@ -63,10 +141,6 @@ export function DemoPlayer({ script }: DemoPlayerProps) {
       lastUpdateRef.current = time;
 
       playheadRef.current += deltaTime;
-
-      // Find current keyframe segment
-      const keyframes = currentStep.keyframes;
-      const totalDuration = keyframes[keyframes.length - 1]?.timestamp || 0;
 
       if (playheadRef.current >= totalDuration) {
         setIsPlaying(false);
@@ -76,25 +150,21 @@ export function DemoPlayer({ script }: DemoPlayerProps) {
 
       setProgress((playheadRef.current / totalDuration) * 100);
 
-      // Interpolate position
-      const nextIdx = keyframes.findIndex(k => k.timestamp > playheadRef.current);
+      const nextIdx = keyframes.findIndex((k) => k.timestamp > playheadRef.current);
       const prevIdx = nextIdx > 0 ? nextIdx - 1 : 0;
-      
+
       const prev = keyframes[prevIdx];
       const next = keyframes[nextIdx];
 
       if (prev && next) {
-        const segmentProgress = (playheadRef.current - prev.timestamp) / (next.timestamp - prev.timestamp);
+        const segmentProgress =
+          (playheadRef.current - prev.timestamp) / (next.timestamp - prev.timestamp);
         setCursorPos({
           x: prev.x + (next.x - prev.x) * segmentProgress,
           y: prev.y + (next.y - prev.y) * segmentProgress,
         });
 
-        if (next.type === 'click' && segmentProgress > 0.9) {
-          setIsClicking(true);
-        } else {
-          setIsClicking(false);
-        }
+        setIsClicking(next.type === 'click' && segmentProgress > 0.9);
       }
 
       requestAnimationFrame(animate);
@@ -108,12 +178,25 @@ export function DemoPlayer({ script }: DemoPlayerProps) {
   }, [isPlaying, currentStep]);
 
   const handleHotspotClick = (nextStepId: string) => {
-    const nextIdx = script.steps.findIndex(s => s.id === nextStepId);
+    const nextIdx = script.steps.findIndex((s) => s.id === nextStepId);
     if (nextIdx !== -1) {
       setCurrentStepIndex(nextIdx);
       setIsPlaying(true);
     }
   };
+
+  const visibleHotspots = useMemo(
+    () => (currentStep ? currentStep.hotspots.filter((h) => hotspotPositions[h.id]) : []),
+    [currentStep, hotspotPositions],
+  );
+
+  if (!currentStep) {
+    return (
+      <div className="flex flex-col h-full items-center justify-center text-slate-400 text-sm">
+        No demo step available.
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full bg-slate-950 relative overflow-hidden">
@@ -121,19 +204,19 @@ export function DemoPlayer({ script }: DemoPlayerProps) {
       <div className="flex justify-between items-center mb-6 shrink-0">
         <div className="flex gap-4 font-mono">
           <div className="text-[10px] font-bold px-3 py-1 bg-slate-900 border border-slate-700 rounded text-slate-300 tracking-widest uppercase">
-            STEP_{String(currentStepIndex + 1).padStart(2, '0')} <span className="text-slate-500 ml-1">/ {String(script.steps.length).padStart(2, '0')}</span>
+            STEP_{String(safeStepIndex + 1).padStart(2, '0')} <span className="text-slate-500 ml-1">/ {String(script.steps.length).padStart(2, '0')}</span>
           </div>
           <div className="text-[10px] font-bold px-3 py-1 bg-brand/5 border border-brand/20 rounded text-brand tracking-widest uppercase">
             STATUS: {isPlaying ? 'REPLAYING' : 'PAUSED'}
           </div>
         </div>
         <div className="flex gap-2">
-          <button 
+          <button
             onClick={() => {
               setCurrentStepIndex(0);
               setIsPlaying(true);
             }}
-            className="w-3 h-3 rounded-full bg-[#FF5F56] hover:scale-110 transition-transform cursor-pointer" 
+            className="w-3 h-3 rounded-full bg-[#FF5F56] hover:scale-110 transition-transform cursor-pointer"
             title="Reset"
           />
           <div className="w-3 h-3 rounded-full bg-[#FFBD2E]" />
@@ -147,19 +230,21 @@ export function DemoPlayer({ script }: DemoPlayerProps) {
           ref={iframeRef}
           className="w-full h-full border-0 pointer-events-none"
           title="Demo Sandbox"
+          sandbox="allow-same-origin"
         />
 
         {/* Interaction Layers */}
         <AnimatePresence>
-          {!isPlaying && (
+          {!isPlaying && visibleHotspots.length > 0 && (
             <div className="absolute inset-0 pointer-events-auto bg-brand/5 backdrop-blur-[1px]">
-              {currentStep.hotspots.map((hotspot) => (
-                <HotspotOverlay
-                  key={hotspot.id}
-                  hotspot={hotspot}
-                  iframeRef={iframeRef}
-                  onClick={() => handleHotspotClick(hotspot.nextStepId)}
-                />
+              {visibleHotspots.map((hotspot) => (
+                <Fragment key={hotspot.id}>
+                  <HotspotOverlay
+                    hotspot={hotspot}
+                    position={hotspotPositions[hotspot.id]}
+                    onClick={() => handleHotspotClick(hotspot.nextStepId)}
+                  />
+                </Fragment>
               ))}
             </div>
           )}
@@ -173,26 +258,26 @@ export function DemoPlayer({ script }: DemoPlayerProps) {
 
       {/* Timeline Controls */}
       <div className="mt-8 flex items-center gap-6 shrink-0">
-        <button 
+        <button
           onClick={() => setIsPlaying(!isPlaying)}
           className="w-12 h-12 flex items-center justify-center rounded-full bg-brand text-black shrink-0 shadow-lg shadow-brand/20 hover:scale-105 transition-all active:scale-95 group"
         >
           {isPlaying ? (
-             <div className="flex gap-1">
-               <div className="w-1.5 h-4 bg-black rounded-full" />
-               <div className="w-1.5 h-4 bg-black rounded-full" />
-             </div>
+            <div className="flex gap-1">
+              <div className="w-1.5 h-4 bg-black rounded-full" />
+              <div className="w-1.5 h-4 bg-black rounded-full" />
+            </div>
           ) : (
             <Play size={24} fill="currentColor" className="ml-1" />
           )}
         </button>
 
         <div className="flex-1 h-[2px] bg-slate-800 relative">
-          <div 
-            className="absolute left-0 top-0 h-full bg-brand transition-all duration-100 ease-linear shadow-[0_0_8px_rgba(0,255,194,0.5)]" 
-            style={{ width: `${progress}%` }} 
+          <div
+            className="absolute left-0 top-0 h-full bg-brand transition-all duration-100 ease-linear shadow-[0_0_8px_rgba(0,255,194,0.5)]"
+            style={{ width: `${progress}%` }}
           />
-          <motion.div 
+          <motion.div
             className="absolute -top-1 w-2.5 h-2.5 bg-white rounded-full shadow-[0_0_10px_white] z-10"
             animate={{ left: `${progress}%` }}
             transition={{ type: 'tween', ease: 'linear', duration: 0.1 }}
@@ -204,11 +289,11 @@ export function DemoPlayer({ script }: DemoPlayerProps) {
           {Math.floor((playheadRef.current % 1000) / 10).toString().padStart(2, '0')}
         </div>
       </div>
-      
+
       {/* Tooltip Overlay */}
       <AnimatePresence>
         {!isPlaying && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
@@ -216,7 +301,7 @@ export function DemoPlayer({ script }: DemoPlayerProps) {
           >
             <div className="w-2 h-2 rounded-full bg-brand animate-pulse" />
             <p className="text-[10px] font-bold text-slate-200 tracking-widest uppercase">
-              {currentStep.mutations?.[0]?.value || "Interaction Required"}
+              {currentStep.mutations?.[0]?.value || 'Interaction Required'}
             </p>
           </motion.div>
         )}
@@ -225,27 +310,15 @@ export function DemoPlayer({ script }: DemoPlayerProps) {
   );
 }
 
-function HotspotOverlay({ hotspot, iframeRef, onClick }: { hotspot: any, iframeRef: React.RefObject<HTMLIFrameElement | null>, onClick: () => void }) {
-  const [position, setPosition] = useState({ top: '50%', left: '50%' });
-
-  useEffect(() => {
-    if (!iframeRef.current) return;
-    const doc = iframeRef.current.contentDocument;
-    if (!doc) return;
-
-    const el = doc.querySelector(hotspot.selector);
-    if (el) {
-      const rect = el.getBoundingClientRect();
-      const iframeRect = iframeRef.current.getBoundingClientRect();
-      
-      // Calculate percentage based on iframe size
-      setPosition({
-        top: `${(rect.top + rect.height / 2) / iframeRect.height * 100}%`,
-        left: `${(rect.left + rect.width / 2) / iframeRect.width * 100}%`,
-      });
-    }
-  }, [hotspot.selector, iframeRef]);
-
+function HotspotOverlay({
+  hotspot,
+  position,
+  onClick,
+}: {
+  hotspot: Hotspot;
+  position: HotspotPosition;
+  onClick: () => void;
+}) {
   return (
     <motion.button
       initial={{ scale: 0.8, opacity: 0 }}
