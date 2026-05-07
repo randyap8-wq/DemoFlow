@@ -11,8 +11,6 @@ virtual cursor moves between keyframes, per-step DOM mutations are applied
 This makes it possible to ship interactive, lightweight product demos that
 look exactly like the real product without running the real product.
 
-View this app in AI Studio:
-https://ai.studio/apps/c1625a36-a388-4d97-acdd-6d5efd8065aa
 
 ## How it works
 
