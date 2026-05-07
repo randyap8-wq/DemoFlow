@@ -133,7 +133,10 @@ export default function App() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // Defer revocation past the current task so Safari and other browsers
+    // get a chance to actually start the download before the blob URL is
+    // invalidated. Revoking inline can cancel/corrupt the download.
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
   }, [script]);
 
   // Sync the current step into the URL hash so links are deep-linkable, and

@@ -45,6 +45,42 @@ The codebase uses TypeScript with strict types, React 19, Tailwind v4, and
 the `motion` library for animation. Prefer small focused components and
 keep new dependencies to a minimum.
 
+## Authoring a `DemoScript`
+
+The bundled `SAMPLE_DEMO` (`src/constants.ts`) and the example JSON files
+contain hand-written `rrweb-snapshot` trees, which is fine for tiny demos
+but tedious for anything real. The intended authoring path is to capture
+a real page in your browser with `rrweb-snapshot` and paste the result into
+a step's `snapshot` field.
+
+Quickest path, no install required:
+
+1. Open the page you want to capture in your browser.
+2. Open DevTools → Console and load `rrweb-snapshot` from a CDN, then call
+   `snapshot()` on `document`:
+
+   ```js
+   const s = document.createElement('script');
+   s.src = 'https://cdn.jsdelivr.net/npm/rrweb-snapshot@2.0.0-alpha.4/dist/rrweb-snapshot.min.js';
+   document.head.appendChild(s);
+   s.onload = () => {
+     const snap = rrwebSnapshot.snapshot(document);
+     copy(JSON.stringify(snap)); // copies to clipboard in Chrome / Edge
+     console.log('Snapshot copied to clipboard');
+   };
+   ```
+
+3. Paste the clipboard contents into the `snapshot` field of a `DemoStep`
+   in your `.json` file. Add `keyframes` (cursor path + clicks), `hotspots`
+   (selectors that advance to the next step), and any `mutations` you want
+   to apply on top of the snapshot.
+4. Drop the `.json` onto the running app or load it via `?demo=<url>` to
+   verify it plays back correctly.
+
+For raw HTML pages without interactive automation, you can skip the
+snapshot step entirely and load a `.html` file directly — DemoFlow will
+wrap it in a single-step script for you.
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under
