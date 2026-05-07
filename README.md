@@ -1,5 +1,7 @@
-
 # DemoFlow Engine
+
+> **Open source.** DemoFlow is released as open source software — feel
+> free to read the code, fork it, file issues and send pull requests.
 
 A pixel-perfect, DOM-replay based product demo engine with interactive hotspots
 and virtual cursor automation.
@@ -48,6 +50,7 @@ src/
     VirtualCursor.tsx         # Animated cursor rendered above the iframe
   lib/
     utils.ts                  # injectSnapshotIntoIframe + cn() helper
+    scriptLoader.ts           # Load + validate DemoScript / HTML files
 ```
 
 ## Loading your own demo (local-only)
@@ -105,34 +108,29 @@ Other scripts:
 | Script            | What it does                                           |
 | ----------------- | ------------------------------------------------------ |
 | `npm run dev`     | Start Vite dev server on port 3000.                    |
-| `npm run build`   | Type-check-less production build into `dist/`.         |
+| `npm run build`   | Production build into `dist/`.                         |
 | `npm run preview` | Preview the production build locally.                  |
 | `npm run lint`    | Run `tsc --noEmit` for type checking.                  |
 | `npm run clean`   | Remove the `dist/` build output.                       |
 
-## Environment variables
-
-No environment variables are required to run the demo player. An
-`.env.example` file is included for AI Studio compatibility and lists:
-
-- `GEMINI_API_KEY` – wired through `vite.config.ts` for AI Studio, but **not
-  currently consumed by any code in `src/`**. Safe to leave unset.
-- `APP_URL` – injected by AI Studio at deploy time; not used locally.
-
-To customize values locally, copy the example file:
-
-```bash
-cp .env.example .env.local
-```
+No environment variables are required to run the demo player.
 
 ## Notes on current state
 
 - The player, virtual cursor, hotspots, and mutations all work end-to-end
   against the bundled `SAMPLE_DEMO`.
-- `@google/genai` and `express` appear in `package.json` but are not yet
-  used by the app — they are placeholders for future AI-assisted scripting
-  and a potential snapshot-capture server. They can be removed if those
-  features are not planned.
 - Snapshots in `SAMPLE_DEMO` are hand-written mock trees; capturing real
   pages with `rrweb-snapshot`'s `snapshot()` and feeding the result into a
   `DemoStep` is the intended authoring path.
+
+---
+
+<p align="center">
+  <a href="https://amalgafy.com">
+    <img src="public/amalgafy-icon.svg" alt="Amalgafy" width="48" height="48" />
+  </a>
+</p>
+
+<p align="center">
+  Built by the <a href="https://amalgafy.com"><strong>Amalgafy</strong></a> team.
+</p>
