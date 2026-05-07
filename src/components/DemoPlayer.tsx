@@ -84,6 +84,11 @@ export const DemoPlayer = forwardRef<DemoPlayerHandle, DemoPlayerProps>(function
   const [progress, setProgress] = useState(0);
   const [hotspotPositions, setHotspotPositions] = useState<Record<string, HotspotPosition>>({});
   const [speed, setSpeed] = useState<number>(1);
+  // Set when the iframe becomes inaccessible (typically because a remote
+  // ?demo=<url> caused us to load a cross-origin document and the browser
+  // now blocks contentDocument access). We surface this as a banner instead
+  // of silently rendering a player with no hotspots.
+  const [iframeAccessError, setIframeAccessError] = useState<string | null>(null);
 
   const reducedMotion = usePrefersReducedMotion();
 
@@ -120,17 +125,37 @@ export const DemoPlayer = forwardRef<DemoPlayerHandle, DemoPlayerProps>(function
   const queryCached = (selector: string): Element | null => {
     const cache = selectorCacheRef.current;
     if (cache.has(selector)) return cache.get(selector) ?? null;
-    const doc = iframeRef.current?.contentDocument;
+    let doc: Document | null | undefined;
+    try {
+      doc = iframeRef.current?.contentDocument;
+    } catch {
+      // Cross-origin iframe — accessing contentDocument throws a
+      // SecurityError. Surface it once and bail out so we don't keep
+      // trying to query a document we can't read.
+      setIframeAccessError(
+        'Cannot access iframe content because the demo is on a different origin (loaded via ?demo=<url>). Hotspots and mutations are disabled for this demo.',
+      );
+      return null;
+    }
     let el: Element | null = null;
     if (doc) {
       try {
         el = doc.querySelector(selector);
-      } catch {
-        // Invalid selector — treat as missing rather than crashing.
-        el = null;
+      } catch (err) {
+        // Only swallow invalid-selector syntax errors. Anything else
+        // (e.g. a security exception) should propagate so callers / the
+        // browser console see the real failure.
+        if (err instanceof DOMException && err.name === 'SyntaxError') {
+          el = null;
+        } else {
+          throw err;
+        }
       }
     }
-    cache.set(selector, el);
+    // Only cache positive matches. A null result may simply mean the
+    // element hasn't been mutated/inserted yet within this step; caching
+    // it would mask later successful queries against the same selector.
+    if (el) cache.set(selector, el);
     return el;
   };
 
@@ -155,7 +180,17 @@ export const DemoPlayer = forwardRef<DemoPlayerHandle, DemoPlayerProps>(function
     for (const hotspot of step.hotspots) {
       const el = queryCached(hotspot.selector);
       if (!el) continue;
-      const rect = (el as HTMLElement).getBoundingClientRect();
+      let rect: DOMRect;
+      try {
+        rect = (el as HTMLElement).getBoundingClientRect();
+      } catch (err) {
+        // Defensive: getBoundingClientRect can throw on detached / cross-
+        // origin nodes. Skip rather than crash the render loop, but log
+        // so authors can debug missing hotspots without source-diving.
+        // eslint-disable-next-line no-console
+        console.debug('[DemoFlow] getBoundingClientRect failed for selector', hotspot.selector, err);
+        continue;
+      }
       next[hotspot.id] = {
         top: `${((rect.top + rect.height / 2) / iframeRect.height) * 100}%`,
         left: `${((rect.left + rect.width / 2) / iframeRect.width) * 100}%`,
@@ -172,6 +207,7 @@ export const DemoPlayer = forwardRef<DemoPlayerHandle, DemoPlayerProps>(function
 
     selectorCacheRef.current.clear();
     setHotspotPositions({});
+    setIframeAccessError(null);
 
     const inject = currentStep.html
       ? injectHtmlIntoIframe(iframe, currentStep.html)
@@ -221,6 +257,11 @@ export const DemoPlayer = forwardRef<DemoPlayerHandle, DemoPlayerProps>(function
     if (reducedMotion) {
       const last = keyframes[keyframes.length - 1];
       setCursorPos({ x: last.x, y: last.y });
+      // Keep the time readout consistent with the progress bar — without
+      // this the timecode stays at 00:00 even though we just "completed"
+      // playback. Also clear any in-flight click state.
+      playheadRef.current = totalDuration;
+      setIsClicking(false);
       setProgress(100);
       setIsPlaying(false);
       return;
@@ -285,9 +326,24 @@ export const DemoPlayer = forwardRef<DemoPlayerHandle, DemoPlayerProps>(function
 
   const goToStepId = useCallback(
     (target: string | number): boolean => {
-      const idx = resolveStepIndex(script, target);
-      const validId = typeof target === 'string' ? script.steps.some((s) => s.id === target) : true;
-      if (!validId && typeof target === 'string' && Number.isNaN(Number(target))) return false;
+      // Numeric (or numeric-string) targets: validate the index is in range
+      // before jumping. Previously, '999' on a 3-step script would silently
+      // clamp to 0 and still report success, which makes the imperative
+      // API hard to use defensively.
+      if (typeof target === 'number') {
+        if (!Number.isFinite(target) || target < 0 || target >= script.steps.length) return false;
+        goToIndex(target, false);
+        return true;
+      }
+      const numeric = Number(target);
+      const isNumericString = !Number.isNaN(numeric) && String(numeric) === target;
+      if (isNumericString) {
+        if (numeric < 0 || numeric >= script.steps.length) return false;
+        goToIndex(numeric, false);
+        return true;
+      }
+      const idx = script.steps.findIndex((s) => s.id === target);
+      if (idx === -1) return false;
       goToIndex(idx, false);
       return true;
     },
@@ -410,12 +466,23 @@ export const DemoPlayer = forwardRef<DemoPlayerHandle, DemoPlayerProps>(function
             <button
               onClick={handleRestart}
               className="w-3 h-3 rounded-full bg-[#FF5F56] hover:scale-110 transition-transform cursor-pointer"
-              title="Restart from first step (R)"
-              aria-label="Restart from first step"
+              title="Restart demo from first step (R) — not a window-close button"
+              aria-label="Restart demo from first step"
             />
             <div className="w-3 h-3 rounded-full bg-[#FFBD2E]" aria-hidden="true" />
             <div className="w-3 h-3 rounded-full bg-[#27C93F]" aria-hidden="true" />
           </div>
+        </div>
+      )}
+
+      {/* Cross-origin / inaccessible iframe banner. Surfaced when content
+          can't be queried (e.g. ?demo=<url> resolved to a different origin). */}
+      {iframeAccessError && (
+        <div
+          role="alert"
+          className="mb-3 px-3 py-2 rounded border border-red-500/40 bg-red-500/10 text-[11px] text-red-300 font-mono"
+        >
+          {iframeAccessError}
         </div>
       )}
 
@@ -599,14 +666,22 @@ function HotspotOverlay({
   position: HotspotPosition;
   onClick: () => void;
 }) {
+  // Visible tooltip prefers description, then label, then a generic verb.
+  // The aria-label avoids announcing the label twice when it is also the
+  // visible tip (previously this produced "label: label" for hotspots that
+  // had a label but no description).
   const tip = hotspot.description || hotspot.label || 'Activate hotspot';
+  const ariaLabel =
+    hotspot.label && hotspot.description && hotspot.label !== hotspot.description
+      ? `${hotspot.label}: ${hotspot.description}`
+      : tip;
   return (
     <motion.button
       initial={{ scale: 0.8, opacity: 0 }}
       animate={{ scale: 1, opacity: 1 }}
       whileHover={{ scale: 1.1 }}
       onClick={onClick}
-      aria-label={hotspot.label ? `${hotspot.label}: ${tip}` : tip}
+      aria-label={ariaLabel}
       className="absolute flex items-center gap-2 group z-30 -translate-x-1/2 -translate-y-1/2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 rounded-full"
       style={position}
     >

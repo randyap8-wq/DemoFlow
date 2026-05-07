@@ -29,9 +29,15 @@ export function VirtualCursor({ x, y, isClicking }: VirtualCursorProps) {
       }}
       transition={{
         type: 'spring',
-        damping: 30,
-        stiffness: 200,
-        mass: 0.5
+        // Tuned for fast convergence: with these params the spring settles
+        // within ~1–2 frames at 60 fps, so the visible cursor position stays
+        // in lock-step with the logical click point used to trigger the
+        // ripple. Looser springs (lower stiffness / higher mass) noticeably
+        // undershoot for fast click keyframes and put the visual click out
+        // of sync with the keyframe.
+        damping: 40,
+        stiffness: 400,
+        mass: 0.3
       }}
     >
       <div className="relative">

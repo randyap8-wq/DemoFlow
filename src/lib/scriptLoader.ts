@@ -168,10 +168,14 @@ export async function loadScriptFromUrl(url: string): Promise<DemoScript> {
   if (lengthHeader && Number(lengthHeader) > MAX_DEMO_FILE_BYTES) {
     throw new Error(`Remote file exceeds ${MAX_DEMO_FILE_MB} MB limit.`);
   }
-  const body = await res.text();
-  if (body.length > MAX_DEMO_FILE_BYTES) {
+  // Read as bytes and decode to text ourselves so the size guard is enforced
+  // in real bytes. `string.length` counts UTF-16 code units, which can let
+  // multi-byte payloads slip past or reject smaller-than-limit files.
+  const buffer = await res.arrayBuffer();
+  if (buffer.byteLength > MAX_DEMO_FILE_BYTES) {
     throw new Error(`Remote file exceeds ${MAX_DEMO_FILE_MB} MB limit.`);
   }
+  const body = new TextDecoder().decode(buffer);
 
   const ct = res.headers.get('content-type') || '';
   const looksJson = ct.includes('json') || url.toLowerCase().endsWith('.json') || body.trimStart().startsWith('{');
