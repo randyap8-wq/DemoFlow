@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Sample landing page</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, sans-serif;
+        background: linear-gradient(135deg, #0f172a, #1e1b4b);
+        color: #e2e8f0;
+        min-height: 100vh;
+      }
+      header {
+        padding: 24px 48px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      header .brand { font-weight: 800; letter-spacing: 0.04em; }
+      header nav a { color: #94a3b8; text-decoration: none; margin-left: 24px; font-size: 14px; }
+      main {
+        padding: 96px 48px;
+        max-width: 880px;
+        margin: 0 auto;
+        text-align: center;
+      }
+      h1 { font-size: 56px; line-height: 1.05; margin: 0 0 16px; letter-spacing: -0.02em; }
+      .lede { color: #cbd5e1; font-size: 18px; margin: 0 0 32px; }
+      .cta {
+        background: #22d3ee;
+        color: #0f172a;
+        padding: 14px 28px;
+        border-radius: 10px;
+        font-weight: 700;
+        text-decoration: none;
+        display: inline-block;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand">EXAMPLE.IO</div>
+      <nav>
+        <a href="#">Product</a>
+        <a href="#">Pricing</a>
+        <a href="#">Docs</a>
+      </nav>
+    </header>
+    <main>
+      <h1>Ship product demos that look like the real thing.</h1>
+      <p class="lede">A sample static landing page rendered inside DemoFlow as a raw HTML demo.</p>
+      <a class="cta" id="cta" href="#">Try it now</a>
+    </main>
+  </body>
+</html>

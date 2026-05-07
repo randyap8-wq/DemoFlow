@@ -60,6 +60,56 @@ export function injectSnapshotIntoIframe(
 }
 
 /**
+ * Strip `<script>` blocks, `<noscript>` blocks, `on*` inline event handlers
+ * and `javascript:` URLs from a raw HTML string. The iframe sandbox already
+ * blocks script execution (it does not include `allow-scripts`), but this
+ * is a belt-and-braces measure so that, even if a future change relaxes
+ * the sandbox, attacker-controlled markup still can't run code.
+ *
+ * Implemented with `DOMParser` so the browser's real HTML parser handles
+ * the long tail of sneaky markup variants (whitespace inside end tags,
+ * mixed-case attributes, attribute-value bypasses, etc.). DemoFlow is a
+ * browser app — `injectHtmlIntoIframe` requires an `HTMLIFrameElement`,
+ * so DOMParser is always available at the call site.
+ */
+export function sanitizeRawHtml(html: string): string {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+
+  // Drop every <script> and <noscript> regardless of nesting.
+  doc.querySelectorAll('script, noscript').forEach((n) => n.remove());
+
+  // Strip on* inline handlers and neutralise javascript: URLs.
+  const walker = doc.createTreeWalker(doc, NodeFilter.SHOW_ELEMENT);
+  let node = walker.nextNode() as Element | null;
+  while (node) {
+    for (const attr of Array.from(node.attributes)) {
+      const name = attr.name.toLowerCase();
+      if (name.startsWith('on')) {
+        node.removeAttribute(attr.name);
+        continue;
+      }
+      if (
+        (name === 'href' || name === 'src' || name === 'xlink:href') &&
+        /^\s*javascript:/i.test(attr.value)
+      ) {
+        node.setAttribute(attr.name, '#');
+      }
+    }
+    node = walker.nextNode() as Element | null;
+  }
+
+  // For full documents, return the parsed `<html>` tree (with a doctype so
+  // the iframe doesn't drop into quirks mode). For body fragments, return
+  // just the body's inner HTML so the caller can wrap it however it likes.
+  const looksLikeFullDoc = /^\s*<!doctype/i.test(html) || /<html[\s>]/i.test(html);
+  if (looksLikeFullDoc && doc.documentElement) {
+    return `<!doctype html>${doc.documentElement.outerHTML}`;
+  }
+  return doc.body.innerHTML;
+}
+
+/**
  * Inject a raw HTML string into the iframe via `srcdoc`. This is the
  * recommended path for large local pages: the browser parses the document
  * off the main React render path, and we get clean isolation without
@@ -72,16 +122,17 @@ export function injectHtmlIntoIframe(
   html: string,
 ): Promise<void> {
   return new Promise((resolve) => {
+    const sanitized = sanitizeRawHtml(html);
     const styleTag = `<style data-demoflow-base>${BASE_IFRAME_STYLE}</style>`;
     let doc: string;
 
-    if (/<\/head\s*>/i.test(html)) {
-      doc = html.replace(/<\/head\s*>/i, `${styleTag}</head>`);
-    } else if (/<html[\s>]/i.test(html)) {
-      doc = html.replace(/<html([^>]*)>/i, `<html$1><head>${styleTag}</head>`);
+    if (/<\/head\s*>/i.test(sanitized)) {
+      doc = sanitized.replace(/<\/head\s*>/i, `${styleTag}</head>`);
+    } else if (/<html[\s>]/i.test(sanitized)) {
+      doc = sanitized.replace(/<html([^>]*)>/i, `<html$1><head>${styleTag}</head>`);
     } else {
       // Fragment / partial HTML
-      doc = `<!doctype html><html><head>${styleTag}</head><body>${html}</body></html>`;
+      doc = `<!doctype html><html><head>${styleTag}</head><body>${sanitized}</body></html>`;
     }
 
     const onLoad = () => {
