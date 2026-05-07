@@ -6,7 +6,8 @@
 import { DemoScript, DemoStep, Hotspot } from '../types';
 
 /** Reject files larger than this when loading from disk / a remote URL. */
-export const MAX_DEMO_FILE_BYTES = 25 * 1024 * 1024; // 25 MB
+export const MAX_DEMO_FILE_MB = 25;
+export const MAX_DEMO_FILE_BYTES = MAX_DEMO_FILE_MB * 1024 * 1024;
 
 /**
  * Wrap a raw HTML document into a minimal single-step DemoScript so the
@@ -132,8 +133,9 @@ export function assertDemoScript(value: unknown): asserts value is DemoScript {
  */
 export async function parseDemoFile(file: File): Promise<DemoScript> {
   if (file.size > MAX_DEMO_FILE_BYTES) {
+    const sizeMb = (file.size / 1024 / 1024).toFixed(1);
     throw new Error(
-      `File "${file.name}" is ${(file.size / 1024 / 1024).toFixed(1)} MB which exceeds the ${MAX_DEMO_FILE_BYTES / 1024 / 1024} MB limit.`,
+      `File "${file.name}" is ${sizeMb} MB which exceeds the ${MAX_DEMO_FILE_MB} MB limit.`,
     );
   }
   const text = await file.text();
@@ -164,11 +166,11 @@ export async function loadScriptFromUrl(url: string): Promise<DemoScript> {
 
   const lengthHeader = res.headers.get('content-length');
   if (lengthHeader && Number(lengthHeader) > MAX_DEMO_FILE_BYTES) {
-    throw new Error(`Remote file exceeds ${MAX_DEMO_FILE_BYTES / 1024 / 1024} MB limit.`);
+    throw new Error(`Remote file exceeds ${MAX_DEMO_FILE_MB} MB limit.`);
   }
   const body = await res.text();
   if (body.length > MAX_DEMO_FILE_BYTES) {
-    throw new Error(`Remote file exceeds ${MAX_DEMO_FILE_BYTES / 1024 / 1024} MB limit.`);
+    throw new Error(`Remote file exceeds ${MAX_DEMO_FILE_MB} MB limit.`);
   }
 
   const ct = res.headers.get('content-type') || '';

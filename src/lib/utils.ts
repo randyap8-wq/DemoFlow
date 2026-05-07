@@ -65,18 +65,48 @@ export function injectSnapshotIntoIframe(
  * blocks script execution (it does not include `allow-scripts`), but this
  * is a belt-and-braces measure so that, even if a future change relaxes
  * the sandbox, attacker-controlled markup still can't run code.
+ *
+ * Implemented with `DOMParser` so the browser's real HTML parser handles
+ * the long tail of sneaky markup variants (whitespace inside end tags,
+ * mixed-case attributes, attribute-value bypasses, etc.). DemoFlow is a
+ * browser app — `injectHtmlIntoIframe` requires an `HTMLIFrameElement`,
+ * so DOMParser is always available at the call site.
  */
 export function sanitizeRawHtml(html: string): string {
-  let safe = html.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '');
-  safe = safe.replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript\s*>/gi, '');
-  // Strip on*="..." / on*='...' / on*=value inline handlers.
-  safe = safe.replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '');
-  safe = safe.replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '');
-  safe = safe.replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, '');
-  // Neutralize javascript: URLs in href/src attributes.
-  safe = safe.replace(/(href|src)\s*=\s*"\s*javascript:[^"]*"/gi, '$1="#"');
-  safe = safe.replace(/(href|src)\s*=\s*'\s*javascript:[^']*'/gi, "$1='#'");
-  return safe;
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+
+  // Drop every <script> and <noscript> regardless of nesting.
+  doc.querySelectorAll('script, noscript').forEach((n) => n.remove());
+
+  // Strip on* inline handlers and neutralise javascript: URLs.
+  const walker = doc.createTreeWalker(doc, NodeFilter.SHOW_ELEMENT);
+  let node = walker.nextNode() as Element | null;
+  while (node) {
+    for (const attr of Array.from(node.attributes)) {
+      const name = attr.name.toLowerCase();
+      if (name.startsWith('on')) {
+        node.removeAttribute(attr.name);
+        continue;
+      }
+      if (
+        (name === 'href' || name === 'src' || name === 'xlink:href') &&
+        /^\s*javascript:/i.test(attr.value)
+      ) {
+        node.setAttribute(attr.name, '#');
+      }
+    }
+    node = walker.nextNode() as Element | null;
+  }
+
+  // For full documents, return the parsed `<html>` tree (with a doctype so
+  // the iframe doesn't drop into quirks mode). For body fragments, return
+  // just the body's inner HTML so the caller can wrap it however it likes.
+  const looksLikeFullDoc = /^\s*<!doctype/i.test(html) || /<html[\s>]/i.test(html);
+  if (looksLikeFullDoc && doc.documentElement) {
+    return `<!doctype html>${doc.documentElement.outerHTML}`;
+  }
+  return doc.body.innerHTML;
 }
 
 /**

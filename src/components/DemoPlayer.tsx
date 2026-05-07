@@ -228,6 +228,9 @@ export const DemoPlayer = forwardRef<DemoPlayerHandle, DemoPlayerProps>(function
 
     const animate = (time: number) => {
       if (!lastUpdateRef.current) lastUpdateRef.current = time;
+      // Scale wall-clock delta by `speed` so 2× advances the playhead twice
+      // as fast and 0.5× advances half as fast. Keyframe timestamps stay
+      // unchanged; only the rate at which we walk through them changes.
       const deltaTime = (time - lastUpdateRef.current) * speed;
       lastUpdateRef.current = time;
 
@@ -596,7 +599,7 @@ function HotspotOverlay({
   position: HotspotPosition;
   onClick: () => void;
 }) {
-  const tip = hotspot.description || hotspot.label || 'Click here';
+  const tip = hotspot.description || hotspot.label || 'Activate hotspot';
   return (
     <motion.button
       initial={{ scale: 0.8, opacity: 0 }}
