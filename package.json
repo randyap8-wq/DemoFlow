@@ -6,11 +6,12 @@
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
+    "preview": "vite preview --port=4173 --host=0.0.0.0",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "deploy": "npm run build && gh-pages -d dist -t true"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -26,6 +27,7 @@
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.4",
     "autoprefixer": "^10.4.21",
+    "gh-pages": "^6.1.1",
     "jsdom": "^25.0.1",
     "tailwindcss": "^4.1.14",
     "typescript": "~5.8.2",

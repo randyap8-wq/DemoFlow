@@ -373,6 +373,26 @@ export const DemoPlayer = forwardRef<DemoPlayerHandle, DemoPlayerProps>(function
           e.preventDefault();
           handleRestart();
           break;
+        case 'f':
+        case 'F': {
+          e.preventDefault();
+          const el = containerRef.current;
+          if (!el || typeof document === 'undefined') break;
+          const d = document as Document & { webkitFullscreenElement?: Element };
+          const isFs = !!(d.fullscreenElement ?? d.webkitFullscreenElement);
+          if (isFs) {
+            const exit = (document.exitFullscreen ??
+              (document as unknown as { webkitExitFullscreen?: () => Promise<void> })
+                .webkitExitFullscreen)?.bind(document);
+            void exit?.();
+          } else {
+            const req = (el.requestFullscreen ??
+              (el as unknown as { webkitRequestFullscreen?: () => Promise<void> })
+                .webkitRequestFullscreen)?.bind(el);
+            void req?.();
+          }
+          break;
+        }
       }
     };
     window.addEventListener('keydown', onKey);
